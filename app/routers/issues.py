@@ -8,12 +8,13 @@ time. Call ``db = get_db()`` inside each handler so the live module global is
 read after main.py assigns it during startup.
 """
 
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, Response
 
 from app import shapes
+from app.config import settings
 from app.store import get_db
 
 router = APIRouter()
@@ -120,6 +121,179 @@ async def create_issue(request: Request):
             "self": issue["self"],
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Create metadata
+#
+# MUST be registered before ``GET /issue/{key}`` below. Starlette matches routes
+# in registration order, so if this came after, ``/issue/createmeta`` would be
+# captured as ``{key} == "createmeta"`` and 404 on the store lookup.
+# ---------------------------------------------------------------------------
+
+@router.get("/issue/createmeta")
+def get_createmeta(
+    request: Request,
+    projectKeys: Optional[List[str]] = Query(None),
+    issuetypeNames: Optional[List[str]] = Query(None),
+    issuetypeIds: Optional[List[str]] = Query(None),
+    expand: Optional[str] = Query(None),
+):
+    """
+    Returns field metadata for issue creation.
+    Used by DefectDojo and pycontribs/jira to validate project config.
+    MUST be registered before GET /issue/{key} to avoid route capture.
+    """
+    db = get_db()
+    base_url = settings.BASE_URL
+
+    # --- Issue types master list ---
+    # Ids come from the canonical shapes.ISSUETYPE_DEFS so createmeta reports the
+    # same (id, name) pairs every other endpoint does (create_issue, GET
+    # /issue/{key}, GET /field): Task=10001, Bug=10002, Story=10003. Epic is
+    # advertised for parity with a default Jira project scheme; it has no
+    # canonical id, so it is appended explicitly.
+    all_issue_types = [
+        {"id": _id, "name": _name, "subtask": False}
+        for (_id, _name) in shapes.ISSUETYPE_DEFS
+    ]
+    all_issue_types.append({"id": "10004", "name": "Epic", "subtask": False})
+
+    # Filter issue types by name if requested. Query params are lists so both the
+    # comma-string form (?issuetypeNames=Bug,Task) and the repeated form
+    # (?issuetypeNames=Bug&issuetypeNames=Task) that pycontribs/jira emits work;
+    # an empty/whitespace-only value is treated as "no filter".
+    if issuetypeNames:
+        names_filter = {n.strip().lower() for group in issuetypeNames for n in group.split(",") if n.strip()}
+        if names_filter:
+            all_issue_types = [it for it in all_issue_types if it["name"].lower() in names_filter]
+
+    # Filter issue types by ID if requested (same multi-value handling).
+    if issuetypeIds:
+        ids_filter = {i.strip() for group in issuetypeIds for i in group.split(",") if i.strip()}
+        if ids_filter:
+            all_issue_types = [it for it in all_issue_types if it["id"] in ids_filter]
+
+    # Determine whether to include field metadata
+    include_fields = bool(expand and "projects.issuetypes.fields" in expand)
+
+    # Standard field metadata (returned when expand=projects.issuetypes.fields)
+    fields_meta = {
+        "summary": {
+            "required": True,
+            "schema": {"type": "string", "system": "summary"},
+            "name": "Summary",
+            "key": "summary",
+            "hasDefaultValue": False,
+            "operations": ["set"],
+            "allowedValues": []
+        },
+        "issuetype": {
+            "required": True,
+            "schema": {"type": "issuetype", "system": "issuetype"},
+            "name": "Issue Type",
+            "key": "issuetype",
+            "hasDefaultValue": False,
+            "operations": [],
+            "allowedValues": []
+        },
+        "description": {
+            "required": False,
+            "schema": {"type": "string", "system": "description"},
+            "name": "Description",
+            "key": "description",
+            "hasDefaultValue": False,
+            "operations": ["set"],
+            "allowedValues": []
+        },
+        "project": {
+            "required": True,
+            "schema": {"type": "project", "system": "project"},
+            "name": "Project",
+            "key": "project",
+            "hasDefaultValue": False,
+            "operations": ["set"],
+            "allowedValues": []
+        },
+        "priority": {
+            "required": False,
+            "schema": {"type": "priority", "system": "priority"},
+            "name": "Priority",
+            "key": "priority",
+            "hasDefaultValue": True,
+            "operations": ["set"],
+            "allowedValues": [
+                {"self": f"{base_url}/rest/api/2/priority/1", "iconUrl": "", "name": "Highest", "id": "1"},
+                {"self": f"{base_url}/rest/api/2/priority/2", "iconUrl": "", "name": "High",    "id": "2"},
+                {"self": f"{base_url}/rest/api/2/priority/3", "iconUrl": "", "name": "Medium",  "id": "3"},
+                {"self": f"{base_url}/rest/api/2/priority/4", "iconUrl": "", "name": "Low",     "id": "4"},
+                {"self": f"{base_url}/rest/api/2/priority/5", "iconUrl": "", "name": "Lowest",  "id": "5"},
+            ]
+        },
+        "assignee": {
+            "required": False,
+            "schema": {"type": "user", "system": "assignee"},
+            "name": "Assignee",
+            "key": "assignee",
+            "hasDefaultValue": False,
+            "operations": ["set"],
+            "allowedValues": []
+        },
+        "labels": {
+            "required": False,
+            "schema": {"type": "array", "items": "string", "system": "labels"},
+            "name": "Labels",
+            "key": "labels",
+            "hasDefaultValue": False,
+            "operations": ["add", "set", "remove"],
+            "allowedValues": []
+        },
+        "components": {
+            "required": False,
+            "schema": {"type": "array", "items": "component", "system": "components"},
+            "name": "Component/s",
+            "key": "components",
+            "hasDefaultValue": False,
+            "operations": ["add", "set", "remove"],
+            "allowedValues": []
+        }
+    }
+
+    # --- Get and filter projects ---
+    all_projects = db.list_projects()
+    if projectKeys:
+        keys_filter = {k.strip().upper() for group in projectKeys for k in group.split(",") if k.strip()}
+        if keys_filter:
+            all_projects = [p for p in all_projects if p["key"].upper() in keys_filter]
+
+    # --- Build response ---
+    result_projects = []
+    for project in all_projects:
+        project_issuetypes = []
+        for it in all_issue_types:
+            entry = {
+                "self":    f"{base_url}/rest/api/2/issuetype/{it['id']}",
+                "id":      it["id"],
+                "name":    it["name"],
+                "iconUrl": "",
+                "subtask": it["subtask"],
+                "expand":  "fields",
+            }
+            if include_fields:
+                entry["fields"] = fields_meta
+            project_issuetypes.append(entry)
+
+        result_projects.append({
+            "expand":     "issuetypes",
+            "self":       f"{base_url}/rest/api/2/project/{project.get('id', '10000')}",
+            "id":         str(project.get("id", "10000")),
+            "key":        project["key"],
+            "name":       project["name"],
+            "avatarUrls": {"48x48": "", "24x24": "", "16x16": "", "32x32": ""},
+            "issuetypes": project_issuetypes,
+        })
+
+    return {"expand": "projects", "projects": result_projects}
 
 
 # ---------------------------------------------------------------------------
