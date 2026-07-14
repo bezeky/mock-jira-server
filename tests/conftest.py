@@ -56,6 +56,14 @@ class FakeStore:
                 return data
         return None
 
+    def get_project_by_id(self, pid):
+        if pid is None:
+            return None
+        for data in self._projects.values():
+            if str(data.get("id")) == str(pid):
+                return data
+        return None
+
     def list_projects(self):
         return [self._projects[k] for k in sorted(self._projects)]
 

@@ -9,12 +9,18 @@ handler/middleware can read the live global via ``get_db()``.
 monkeypatch ``app.main.PostgresStore``.
 """
 
+import logging
 import time
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 from app.store import PostgresStore
 from app import store as store_module
 from app.seed import load_seed_data

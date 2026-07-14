@@ -120,6 +120,16 @@ class PostgresStore:
             row = cur.fetchone()
             return row["data"] if row else None
 
+    def get_project_by_id(self, pid) -> Optional[dict]:
+        """Look up a project by its numeric id (stored inside the JSONB data
+        blob, e.g. "10000" for APIRE — there is no dedicated id column)."""
+        with self._conn(commit=False) as cur:
+            cur.execute(
+                "SELECT data FROM projects WHERE data->>'id' = %s;", (str(pid),)
+            )
+            row = cur.fetchone()
+            return row["data"] if row else None
+
     def list_projects(self) -> list:
         with self._conn(commit=False) as cur:
             cur.execute("SELECT data FROM projects ORDER BY key;")

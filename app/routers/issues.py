@@ -8,6 +8,7 @@ time. Call ``db = get_db()`` inside each handler so the live module global is
 read after main.py assigns it during startup.
 """
 
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Query, Request
@@ -18,6 +19,7 @@ from app.config import settings
 from app.store import get_db
 
 router = APIRouter()
+logger = logging.getLogger("mock_jira.issues")
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +43,50 @@ def _current_user(request: Request, db) -> Optional[dict]:
         return user
     users = db.list_users()
     return users[0] if users else None
+
+
+def _issuetype_name_from_field(issuetype_field: Optional[dict]) -> str:
+    """Accepts {"name": "Bug"} (already worked) or {"id": "10002"} (new).
+    Falls back to "Task" if neither resolves, same as the old default."""
+    if not issuetype_field:
+        return "Task"
+    name = issuetype_field.get("name")
+    if name:
+        return name
+    iid = issuetype_field.get("id")
+    if iid is not None:
+        for (_id, _name) in shapes.ISSUETYPE_DEFS:
+            if _id == str(iid):
+                return _name
+    return "Task"
+
+
+def _priority_name_from_field(priority_field: Optional[dict]) -> str:
+    """Accepts {"name": "High"} (already worked) or {"id": "2"} (new).
+    Falls back to "Medium" if neither resolves, same as the old default."""
+    if not priority_field:
+        return "Medium"
+    name = priority_field.get("name")
+    if name:
+        return name
+    pid = priority_field.get("id")
+    if pid is not None:
+        for (_id, _name, _color) in shapes.PRIORITY_DEFS:
+            if _id == str(pid):
+                return _name
+    return "Medium"
+
+
+def _resolve_assignee(db, assignee_field: Optional[dict]):
+    """Accepts {"name": "developer1"} (already worked) or {"key": "developer1"}
+    (new — Jira Server clients commonly send key). In this mock key == name
+    for every seeded user, so both look up the same users table."""
+    if not assignee_field:
+        return None
+    identifier = assignee_field.get("name") or assignee_field.get("key")
+    if not identifier:
+        return None
+    return db.get_user_by_name(identifier)
 
 
 def _not_found() -> JSONResponse:
@@ -69,27 +115,40 @@ async def create_issue(request: Request):
     body = await _read_json(request)
     fields = body.get("fields") or {}
 
+    # Diagnostic: log the exact body every caller sends. Controlled by
+    # LOG_LEVEL (default INFO, so this shows up by default). This is what to
+    # watch with `docker compose logs -f mock-jira` while retriggering a
+    # client's create-issue flow — it settles disputes about what a client
+    # actually sent versus what we assumed it sent.
+    logger.info("POST /issue raw body: %s", body)
+
     project_ref = fields.get("project") or {}
     pk = project_ref.get("key")
-    if not pk:
+    pid = project_ref.get("id")
+
+    if not pk and not pid:
         return JSONResponse(
             status_code=400,
             content=shapes.error_body("project is required"),
         )
 
-    project = db.get_project(pk)
+    # Prefer key; fall back to numeric id. Real Jira clients commonly resolve
+    # a project to its id once (e.g. via GET /project/{key}) and then send
+    # {"project": {"id": "10000"}} on subsequent create-issue calls instead of
+    # the key — this fallback is what makes that pattern work here too.
+    project = db.get_project(pk) if pk else None
+    if project is None and pid:
+        project = db.get_project_by_id(pid)
+
     if project is None:
         return JSONResponse(
             status_code=400,
-            content=shapes.error_body("project '%s' does not exist" % pk),
+            content=shapes.error_body("project '%s' does not exist" % (pk or pid)),
         )
 
     key, nid = db.next_issue_key_and_id(project["key"])
 
-    assignee_field = fields.get("assignee")
-    assignee_user = None
-    if assignee_field and assignee_field.get("name"):
-        assignee_user = db.get_user_by_name(assignee_field["name"])
+    assignee_user = _resolve_assignee(db, fields.get("assignee"))
 
     reporter = _current_user(request, db)
     creator = reporter
@@ -100,8 +159,8 @@ async def create_issue(request: Request):
         project=project,
         summary=fields.get("summary", ""),
         description=fields.get("description"),
-        issuetype_name=(fields.get("issuetype") or {}).get("name", "Task"),
-        priority_name=(fields.get("priority") or {}).get("name", "Medium"),
+        issuetype_name=_issuetype_name_from_field(fields.get("issuetype")),
+        priority_name=_priority_name_from_field(fields.get("priority")),
         status_name="To Do",
         assignee_user=assignee_user,
         reporter_user=reporter,

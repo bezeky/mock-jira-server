@@ -91,6 +91,81 @@ def test_get_transitions(client):
     assert len(data["transitions"]) == 4
 
 
+def test_create_issue_project_by_numeric_id(client):
+    # This is the exact OSM shape: no "key" at all, only the numeric id
+    # (APIRE's seeded id is "10000" — see app/seed.py).
+    body = {
+        "fields": {
+            "project": {"id": "10000"},
+            "summary": "Created via project id only",
+            "issuetype": {"name": "Task"},
+        }
+    }
+    resp = client.post("/rest/api/2/issue", json=body)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["key"].startswith("APIRE-")
+
+
+def test_create_issue_still_requires_project(client):
+    # Regression check: with neither key nor id present, this must still 400
+    # with the same message OSM is currently showing.
+    body = {"fields": {"summary": "No project at all"}}
+    resp = client.post("/rest/api/2/issue", json=body)
+    assert resp.status_code == 400
+    assert resp.json()["errorMessages"] == ["project is required"]
+
+
+def test_create_issue_unknown_project_id_errors(client):
+    body = {"fields": {"project": {"id": "99999"}, "summary": "Bad id"}}
+    resp = client.post("/rest/api/2/issue", json=body)
+    assert resp.status_code == 400
+    assert "does not exist" in resp.json()["errorMessages"][0]
+
+
+def test_create_issue_issuetype_by_id(client):
+    body = {
+        "fields": {
+            "project": {"key": "DEMO"},
+            "summary": "Bug via issuetype id",
+            "issuetype": {"id": "10002"},  # Bug
+        }
+    }
+    resp = client.post("/rest/api/2/issue", json=body)
+    assert resp.status_code == 201, resp.text
+    created = client.get(f"/rest/api/2/issue/{resp.json()['key']}").json()
+    assert created["fields"]["issuetype"]["name"] == "Bug"
+
+
+def test_create_issue_priority_by_id(client):
+    body = {
+        "fields": {
+            "project": {"key": "DEMO"},
+            "summary": "High priority via id",
+            "priority": {"id": "2"},  # High
+        }
+    }
+    resp = client.post("/rest/api/2/issue", json=body)
+    assert resp.status_code == 201, resp.text
+    created = client.get(f"/rest/api/2/issue/{resp.json()['key']}").json()
+    assert created["fields"]["priority"]["name"] == "High"
+
+
+def test_create_issue_assignee_by_key(client):
+    # Jira Server clients commonly send "key" rather than "name" for users;
+    # in this mock they're the same string, so this should now resolve.
+    body = {
+        "fields": {
+            "project": {"key": "DEMO"},
+            "summary": "Assigned via key not name",
+            "assignee": {"key": "developer1"},
+        }
+    }
+    resp = client.post("/rest/api/2/issue", json=body)
+    assert resp.status_code == 201, resp.text
+    created = client.get(f"/rest/api/2/issue/{resp.json()['key']}").json()
+    assert created["fields"]["assignee"]["name"] == "developer1"
+
+
 def test_post_transition_updates_status(client):
     created = _create(client)
     key = created["key"]
