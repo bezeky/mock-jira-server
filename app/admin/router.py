@@ -85,7 +85,9 @@ def admin_data():
         )
 
     projects = db.list_projects()
-    all_issues = db.list_all_issues()  # already newest-first (created_at DESC)
+    # limit to 100 newest; full-text descriptions make larger
+    # result sets too slow for the dashboard polling interval
+    all_issues = db.list_all_issues()[:100]  # already newest-first (created_at DESC)
 
     in_progress = 0
     issue_rows = []

@@ -75,7 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_comments_issue ON comments (issue_key);
 class PostgresStore:
     def __init__(self, dsn):
         self.dsn = dsn
-        self.pool = ThreadedConnectionPool(1, 10, dsn=dsn)
+        self.pool = ThreadedConnectionPool(2, 30, dsn=dsn)
 
     @contextmanager
     def _conn(self, commit=True):
