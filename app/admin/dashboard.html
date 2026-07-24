@@ -258,8 +258,8 @@
     // ---- Filter dropdowns ---------------------------------------------------
     function syncSelectOptions(sel, values) {
       const current = sel.value;
-      const existing = Array.from(sel.options).slice(1).map((o) => o.value).join(" ");
-      if (existing === values.join(" ")) return; // unchanged; keep selection intact
+      const existing = Array.from(sel.options).slice(1).map((o) => o.value).join("|");
+      if (existing === values.join("|")) return; // unchanged; keep selection intact
       const first = sel.options[0].outerHTML;
       sel.innerHTML = first;
       values.forEach((v) => {
