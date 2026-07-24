@@ -278,6 +278,22 @@ Returns `204` and updates the issue status. Transition id → status:
 
 ---
 
+## GET /issue/{key}/changelog
+
+Minimal changelog stub for clients that request field history. This mock does not track
+field history, so `histories` is always empty. Accepts the issue key or numeric id;
+unknown issue → `404` with the standard error body.
+
+```bash
+curl -u admin:any http://localhost:8080/rest/api/2/issue/APIRE-1/changelog
+```
+
+```json
+{ "startAt": 0, "maxResults": 50, "total": 0, "histories": [] }
+```
+
+---
+
 ## Comments
 
 ### GET /issue/{key}/comment
@@ -432,9 +448,15 @@ curl -u admin:any \
 | ------ | ---- | ----------- |
 | GET | `/admin` | HTML dashboard |
 | GET | `/api/admin/data` | Store contents + recent request log (JSON) |
+| GET | `/api/admin/issue/{key}` | Single-issue detail for the dashboard panel (JSON) |
 | DELETE | `/api/admin/reset` | Clear all data and reset counters |
 
 ```bash
 curl http://localhost:8080/api/admin/data
+curl http://localhost:8080/api/admin/issue/APIRE-1
 curl -X DELETE http://localhost:8080/api/admin/reset
 ```
+
+`GET /api/admin/issue/{key}` returns the flat dashboard row for one issue plus its full
+`description` (never `null` — coerced to `""`), `comments`, `reporter`, `created`, and
+`updated`. Unknown issue → `404 {"error": "not found"}`.

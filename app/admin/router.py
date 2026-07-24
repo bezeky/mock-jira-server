@@ -2,9 +2,10 @@
 
 Mounted in main.py with NO prefix, so the routes are exactly:
 
-    GET    /admin              -> serves the dashboard HTML
-    GET    /api/admin/data     -> live dashboard JSON (stats, issues, request log)
-    DELETE /api/admin/reset    -> wipe + reseed the store
+    GET    /admin                  -> serves the dashboard HTML
+    GET    /api/admin/data         -> live dashboard JSON (stats, issues, request log)
+    GET    /api/admin/issue/{key}  -> single issue detail (description, comments)
+    DELETE /api/admin/reset        -> wipe + reseed the store
 
 The store singleton is accessed via ``get_db()`` INSIDE each handler (never
 bound at import time), following the project-wide singleton access pattern.
@@ -44,6 +45,10 @@ def _issue_row(issue: dict) -> dict:
         "assignee": assignee_name or "Unassigned",
         "issuetype": issuetype.get("name"),
         "created": fields.get("created"),
+        "description": fields.get("description"),
+        "comments": (fields.get("comment") or {}).get("comments", []),
+        "reporter": (fields.get("reporter") or {}).get("displayName", ""),
+        "updated": fields.get("updated", ""),
     }
 
 
@@ -105,6 +110,28 @@ def admin_data():
             "request_log": request_log,
         }
     )
+
+
+@router.get("/api/admin/issue/{key}")
+def admin_issue_detail(key: str):
+    db = get_db()
+    if db is None:
+        return JSONResponse(status_code=503, content={"error": "store not ready"})
+    from app.routers.issues import _resolve
+
+    issue = _resolve(db, key)
+    if issue is None:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    row = _issue_row(issue)
+    # Full description and comments for the detail view (description coerced
+    # to "" so the panel never has to render null).
+    fields = issue.get("fields") or {}
+    row["description"] = fields.get("description") or ""
+    row["comments"] = (fields.get("comment") or {}).get("comments", [])
+    row["reporter"] = (fields.get("reporter") or {}).get("displayName", "")
+    row["created"] = fields.get("created", "")
+    row["updated"] = fields.get("updated", "")
+    return JSONResponse(row)
 
 
 @router.delete("/api/admin/reset")

@@ -2,7 +2,7 @@
 
 Routes here are mounted under the /rest/api/2 prefix in main.py:
     GET /serverInfo, GET /myself, GET /priority, GET /field,
-    GET /status, GET /issuetype
+    GET /status, GET /issuetype, GET /issue/{key}/changelog
 """
 
 from fastapi import APIRouter, Request
@@ -49,3 +49,26 @@ def status():
 @router.get("/issuetype")
 def issuetype():
     return JSONResponse(content=shapes.issuetype_list())
+
+
+@router.get("/issue/{key}/changelog")
+def issue_changelog(key: str):
+    """Minimal changelog stub. This mock does not track field history, so an
+    empty ``histories`` array is the correct answer for any existing issue."""
+    db = get_db()
+    from app.routers.issues import _resolve
+
+    issue = _resolve(db, key) if db else None
+    if issue is None:
+        return JSONResponse(
+            status_code=404,
+            content=shapes.error_body("Issue Does Not Exist"),
+        )
+    return JSONResponse(
+        content={
+            "startAt": 0,
+            "maxResults": 50,
+            "total": 0,
+            "histories": [],
+        }
+    )

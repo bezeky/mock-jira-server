@@ -1,7 +1,8 @@
 """Seed data loader for the Mock Jira Server (Server / Data Center flavor).
 
-``load_seed_data(store)`` populates the store with a small, deterministic data
-set: three Server-style users, three projects, and five issues per project.
+``load_seed_data(store)`` populates the store with a deterministic data set:
+the Server-style users below (mock + real company users), three projects, and
+five issues per project.
 
 Idempotency is the caller's responsibility: ``main.py`` invokes this only when
 ``store.list_projects()`` is empty. Numeric ids come from the store's issue
@@ -13,9 +14,25 @@ from app import shapes
 
 # (name, displayName, emailAddress)
 _USERS = [
-    ("admin", "Mock Admin", "admin@mockjira.com"),
-    ("developer1", "Developer One", "dev@mockjira.com"),
-    ("qaengineer", "QA Engineer", "qa@mockjira.com"),
+    # Original mock users — keep for backward compat with existing seed issues
+    ("admin",       "Mock Admin",      "admin@mockjira.com"),
+    ("developer1",  "Developer One",   "dev@mockjira.com"),
+    ("qaengineer",  "QA Engineer",     "qa@mockjira.com"),
+    # Real company users — OSM sends these as assignee.name during ticket creation
+    # Long-form email usernames (OSM LDAP format)
+    ("mastergulsena",    "Gülsena Buran",      "mastergulsena@secrcomp.com"),
+    ("gulsenabu",        "Gülsena Buran",      "gulsenabu@secrcomp.com"),
+    ("bsinem",           "Sinem Kılıçarslan",  "sinemklc@gmail.com"),
+    ("fundabussines",    "Funda Sensen",       "indabussines@secrcomp.com"),
+    ("bsnsila2",         "Sıla Kara",          "bsnsila2@secrcomp.com"),
+    ("maakinci",         "Arda Akıncı",        "maakinci@secrcomp.com"),
+    # Short-form usernames (OSM may send either format)
+    ("gulsenab",  "Gülsena Buran",     "gulsenab@secrcomp.com"),
+    ("sinemk",    "Sinem Kılıçarslan", "sinemk@secrcomp.com"),
+    ("fundas",    "Funda Sensen",      "fundas@secrcomp.com"),
+    ("silak",     "Sıla Kara",         "silak@secrcomp.com"),
+    # Test accounts
+    ("testmp",    "Test User",         "test@secrcomp.com"),
 ]
 
 # (key, id, name)
@@ -79,6 +96,16 @@ def load_seed_data(store):
             "projectTypeKey": "software",
             "lead": "admin",
         }
+        # APIRE explicitly carries its issueTypes so a post-reset admin
+        # dashboard shows them correctly. Set BEFORE save_project: the
+        # Postgres store serializes the dict at call time, so a post-save
+        # mutation would never reach the JSONB payload.
+        if key == "APIRE":
+            stored_project["issueTypes"] = [
+                {"id": "10001", "name": "Task",  "subtask": False},
+                {"id": "10002", "name": "Bug",   "subtask": False},
+                {"id": "10003", "name": "Story", "subtask": False},
+            ]
         store.save_project(stored_project)
         projects_by_key[key] = stored_project
 

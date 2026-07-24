@@ -16,8 +16,9 @@
 </head>
 <body class="bg-gray-100 text-gray-900 dark:bg-gray-950 dark:text-gray-100 min-h-screen">
   <!--
-    Safelist: keep dynamically-generated badge classes present in the initial
-    DOM so the Tailwind Play CDN always generates them.
+    Safelist: keep dynamically-generated classes present in the initial DOM so
+    the Tailwind Play CDN always generates them (badges, panel slide state,
+    active-row border).
   -->
   <div class="hidden
     bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200
@@ -26,7 +27,10 @@
     bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200
     bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200
     bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-200
-    bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200"></div>
+    bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200
+    translate-x-0 translate-x-full
+    border-l-4 border-l-transparent border-l-blue-500
+    cursor-pointer whitespace-pre-wrap break-words animate-spin"></div>
 
   <div class="max-w-7xl mx-auto px-4 py-6">
     <!-- Header -->
@@ -72,7 +76,9 @@
       <div class="lg:basis-[62%] lg:grow-0 lg:shrink-0 min-w-0">
         <div class="rounded-xl bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-800">
           <div class="flex flex-wrap items-center gap-2 p-3 border-b border-gray-200 dark:border-gray-800">
-            <h2 class="font-semibold mr-auto">Issues</h2>
+            <h2 class="font-semibold mr-auto">Issues
+              <span id="issue-count" class="text-sm font-normal text-gray-400 dark:text-gray-500"></span>
+            </h2>
             <select id="filter-project"
                     class="text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5">
               <option value="">All projects</option>
@@ -85,6 +91,10 @@
               <option value="In Review">In Review</option>
               <option value="Done">Done</option>
               <option value="Closed">Closed</option>
+            </select>
+            <select id="filter-assignee"
+                    class="text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5">
+              <option value="">All assignees</option>
             </select>
             <input id="filter-search" type="text" placeholder="Search…"
                    class="text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 w-36" />
@@ -104,6 +114,18 @@
               <tbody id="issues-body" class="divide-y divide-gray-100 dark:divide-gray-800"></tbody>
             </table>
             <p id="issues-empty" class="hidden text-center text-sm text-gray-400 py-8">No matching issues.</p>
+          </div>
+          <!-- Pagination (client-side, 25 per page) -->
+          <div class="flex items-center justify-between gap-2 p-3 border-t border-gray-200 dark:border-gray-800 text-sm">
+            <button id="page-prev"
+                    class="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+              ← Previous
+            </button>
+            <span id="page-indicator" class="text-gray-500 dark:text-gray-400">Page 1 of 1</span>
+            <button id="page-next"
+                    class="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+              Next →
+            </button>
           </div>
         </div>
       </div>
@@ -132,8 +154,26 @@
           Reset all data
         </button>
       </div>
-      <span>v1.0.0</span>
+      <span>v2.0.0</span>
     </footer>
+  </div>
+
+  <!-- Issue detail panel: slides in from the right, overlays the page. -->
+  <div id="detail-panel"
+       class="fixed inset-y-0 right-0 z-50 w-full sm:w-[480px] bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shadow-2xl transform translate-x-full transition-transform duration-300 ease-in-out"
+       aria-hidden="true">
+    <svg id="detail-loading" class="hidden absolute top-4 right-14 h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+    </svg>
+    <button id="detail-close" title="Close (Esc)"
+            class="absolute top-2.5 right-3 h-8 w-8 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition text-xl leading-none">
+      &times;
+    </button>
+    <div class="h-full flex flex-col">
+      <div id="detail-header" class="p-4 pr-16 border-b border-gray-200 dark:border-gray-800"></div>
+      <div id="detail-body" class="flex-1 overflow-y-auto scroll-thin p-4 space-y-5"></div>
+    </div>
   </div>
 
   <script>
@@ -197,34 +237,61 @@
       return d.toLocaleTimeString();
     }
 
-    // ---- State & rendering --------------------------------------------------
-    let ALL_ISSUES = [];
-
-    function syncProjectOptions(issues) {
-      const sel = $("filter-project");
-      const current = sel.value;
-      const keys = Array.from(new Set(issues.map((i) => i.project_key).filter(Boolean))).sort();
-      const existing = Array.from(sel.options).slice(1).map((o) => o.value).join(",");
-      if (existing === keys.join(",")) return; // unchanged; keep selection intact
-      sel.innerHTML = '<option value="">All projects</option>';
-      keys.forEach((k) => {
-        const o = document.createElement("option");
-        o.value = k;
-        o.textContent = k;
-        sel.appendChild(o);
-      });
-      sel.value = keys.includes(current) ? current : "";
+    // Jira Server timestamps look like 2026-01-01T10:00:00.000+0000 — insert
+    // the offset colon so every engine's Date parser accepts them.
+    function fmtDate(ts) {
+      if (!ts) return "—";
+      const norm = String(ts).replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+      const d = new Date(norm);
+      if (isNaN(d.getTime())) return esc(String(ts));
+      return esc(d.toLocaleString());
     }
 
-    function renderIssues() {
+    // ---- State --------------------------------------------------------------
+    const PAGE_SIZE = 25;
+    let ALL_ISSUES = [];
+    let currentPage = 1;
+    let openIssueKey = null;   // issue shown in the detail panel; null = closed
+    let detailSeq = 0;         // guards out-of-order detail fetches
+    let lastDetailJson = "";   // skip re-renders when the open issue is unchanged
+
+    // ---- Filter dropdowns ---------------------------------------------------
+    function syncSelectOptions(sel, values) {
+      const current = sel.value;
+      const existing = Array.from(sel.options).slice(1).map((o) => o.value).join(" ");
+      if (existing === values.join(" ")) return; // unchanged; keep selection intact
+      const first = sel.options[0].outerHTML;
+      sel.innerHTML = first;
+      values.forEach((v) => {
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = v;
+        sel.appendChild(o);
+      });
+      sel.value = values.includes(current) ? current : "";
+    }
+
+    function syncProjectOptions(issues) {
+      const keys = Array.from(new Set(issues.map((i) => i.project_key).filter(Boolean))).sort();
+      syncSelectOptions($("filter-project"), keys);
+    }
+
+    function syncAssigneeOptions(issues) {
+      const names = Array.from(new Set(issues.map((i) => i.assignee).filter(Boolean))).sort();
+      syncSelectOptions($("filter-assignee"), names);
+    }
+
+    // ---- Issues table -------------------------------------------------------
+    function filteredIssues() {
       const proj = $("filter-project").value;
       const status = $("filter-status").value;
+      const assignee = $("filter-assignee").value;
       const q = $("filter-search").value.trim().toLowerCase();
-      const body = $("issues-body");
 
-      const rows = ALL_ISSUES.filter((i) => {
+      return ALL_ISSUES.filter((i) => {
         if (proj && i.project_key !== proj) return false;
         if (status && i.status !== status) return false;
+        if (assignee && i.assignee !== assignee) return false;
         if (q) {
           const hay = [i.key, i.summary, i.assignee, i.issuetype, i.project_name]
             .map((x) => (x || "").toLowerCase()).join(" ");
@@ -232,21 +299,180 @@
         }
         return true;
       });
+    }
 
-      $("issues-empty").classList.toggle("hidden", rows.length !== 0);
-
-      body.innerHTML = rows.map((i) => `
-        <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/60">
-          <td class="px-3 py-2 font-mono text-xs whitespace-nowrap text-blue-600 dark:text-blue-400">${esc(i.key)}</td>
-          <td class="px-3 py-2 max-w-xs truncate" title="${esc(i.summary)}">${esc(i.summary)}</td>
+    function issueRowHtml(i) {
+      const active = i.key === openIssueKey;
+      const desc = (i.description || "").replace(/\s+/g, " ").trim();
+      const preview = desc
+        ? `<div class="text-xs text-gray-400 dark:text-gray-500 truncate">${esc(desc.slice(0, 60))}${desc.length > 60 ? "…" : ""}</div>`
+        : "";
+      return `
+        <tr data-key="${esc(i.key)}" class="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60">
+          <td class="px-3 py-2 font-mono text-xs whitespace-nowrap text-blue-600 dark:text-blue-400 border-l-4 ${active ? "border-l-blue-500" : "border-l-transparent"}">${esc(i.key)}</td>
+          <td class="px-3 py-2 max-w-xs">
+            <div class="truncate" title="${esc(i.summary)}">${esc(i.summary)}</div>
+            ${preview}
+          </td>
           <td class="px-3 py-2 whitespace-nowrap text-gray-600 dark:text-gray-300">${esc(i.issuetype)}</td>
           <td class="px-3 py-2 whitespace-nowrap text-gray-600 dark:text-gray-300">${esc(i.priority)}</td>
           <td class="px-3 py-2 whitespace-nowrap">${statusBadge(i.status)}</td>
           <td class="px-3 py-2 whitespace-nowrap text-gray-600 dark:text-gray-300">${esc(i.assignee)}</td>
         </tr>
-      `).join("");
+      `;
     }
 
+    function renderIssues() {
+      const rows = filteredIssues();
+      $("issue-count").textContent = `(${rows.length} of ${ALL_ISSUES.length})`;
+
+      const maxPage = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+      if (currentPage > maxPage) currentPage = maxPage;
+      if (currentPage < 1) currentPage = 1;
+      const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+      $("issues-empty").classList.toggle("hidden", rows.length !== 0);
+      $("page-indicator").textContent = `Page ${currentPage} of ${maxPage}`;
+      $("page-prev").disabled = currentPage <= 1;
+      $("page-next").disabled = currentPage >= maxPage;
+
+      $("issues-body").innerHTML = pageRows.map(issueRowHtml).join("");
+    }
+
+    // ---- Detail panel -------------------------------------------------------
+    const SPINNER = `
+      <div class="flex justify-center py-16">
+        <svg class="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24" fill="none">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+        </svg>
+      </div>`;
+
+    function metaItem(label, value) {
+      return `
+        <div>
+          <p class="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">${esc(label)}</p>
+          <p class="mt-0.5 break-words">${value}</p>
+        </div>`;
+    }
+
+    function renderDetail(data) {
+      $("detail-header").innerHTML = `
+        <div class="font-mono text-sm text-blue-600 dark:text-blue-400">${esc(data.key)}</div>
+        <h3 class="text-lg font-semibold leading-snug mt-0.5 break-words">${esc(data.summary)}</h3>
+        <div class="flex flex-wrap items-center gap-3 mt-2">
+          ${statusBadge(data.status)}
+          <span class="text-xs text-gray-500 dark:text-gray-400">Priority: <span class="font-medium text-gray-700 dark:text-gray-200">${esc(data.priority || "—")}</span></span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">Type: <span class="font-medium text-gray-700 dark:text-gray-200">${esc(data.issuetype || "—")}</span></span>
+        </div>`;
+
+      const desc = data.description || "";
+      const descHtml = desc
+        ? `<pre class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-800 p-3">${esc(desc)}</pre>`
+        : `<p class="text-sm text-gray-400 italic">No description.</p>`;
+
+      const comments = data.comments || [];
+      const commentsHtml = comments.length
+        ? comments.map((c) => `
+            <div class="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
+              <div class="flex items-center justify-between gap-2 mb-1">
+                <span class="text-sm font-medium">${esc((c.author || {}).displayName || (c.author || {}).name || "Unknown")}</span>
+                <span class="text-xs text-gray-400">${fmtDate(c.created)}</span>
+              </div>
+              <div class="text-sm whitespace-pre-wrap break-words">${esc(c.body)}</div>
+            </div>`).join("")
+        : `<p class="text-sm text-gray-400 italic">No comments yet.</p>`;
+
+      $("detail-body").innerHTML = `
+        <div class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+          ${metaItem("Assignee", esc(data.assignee || "Unassigned"))}
+          ${metaItem("Reporter", esc(data.reporter || "—"))}
+          ${metaItem("Created", fmtDate(data.created))}
+          ${metaItem("Updated", fmtDate(data.updated))}
+          ${metaItem("Project", `${esc(data.project_name || "—")}${data.project_key ? ` <span class="text-gray-400">(${esc(data.project_key)})</span>` : ""}`)}
+        </div>
+        <div>
+          <h4 class="text-sm font-semibold mb-2">Description</h4>
+          ${descHtml}
+        </div>
+        <div>
+          <h4 class="text-sm font-semibold mb-2">Comments${comments.length ? ` (${comments.length})` : ""}</h4>
+          <div class="space-y-3">${commentsHtml}</div>
+        </div>`;
+    }
+
+    async function fetchDetail(key, explicit) {
+      const seq = ++detailSeq;
+      $("detail-loading").classList.remove("hidden");
+      try {
+        const res = await fetch(`/api/admin/issue/${encodeURIComponent(key)}`, {
+          headers: { "Accept": "application/json" },
+        });
+        if (seq !== detailSeq || openIssueKey !== key) return; // superseded
+        if (!res.ok) {
+          // On a silent refresh keep the last good render; only an explicit
+          // click reports the failure. Clear lastDetailJson so the next
+          // successful (even unchanged) fetch re-renders over the error, and
+          // point the header at the requested issue.
+          if (explicit) {
+            lastDetailJson = "";
+            $("detail-header").innerHTML =
+              `<div class="font-mono text-sm text-blue-600 dark:text-blue-400">${esc(key)}</div>`;
+            $("detail-body").innerHTML =
+              `<p class="text-sm text-red-500 py-8 text-center">Could not load ${esc(key)} (HTTP ${res.status}).</p>`;
+          }
+          return;
+        }
+        const data = await res.json();
+        if (seq !== detailSeq || openIssueKey !== key) return;
+        const json = JSON.stringify(data);
+        if (explicit || json !== lastDetailJson) {
+          lastDetailJson = json;
+          renderDetail(data);
+        }
+      } catch (err) {
+        console.error("detail fetch failed", err);
+      } finally {
+        if (seq === detailSeq) $("detail-loading").classList.add("hidden");
+      }
+    }
+
+    function openDetail(key) {
+      const alreadyOpen = openIssueKey !== null;
+      const sameIssue = openIssueKey === key;
+      openIssueKey = key;
+      renderIssues(); // refresh the active-row highlight; page is untouched
+
+      const panel = $("detail-panel");
+      panel.classList.remove("translate-x-full");
+      panel.classList.add("translate-x-0");
+      panel.setAttribute("aria-hidden", "false");
+
+      if (!alreadyOpen) {
+        // First open: placeholder header + centered spinner.
+        $("detail-header").innerHTML =
+          `<div class="font-mono text-sm text-blue-600 dark:text-blue-400">${esc(key)}</div>`;
+        $("detail-body").innerHTML = SPINNER;
+      }
+      // Panel already open: keep current content in place until the new issue
+      // arrives (no flash), with the small header spinner as the only cue.
+      if (!sameIssue) lastDetailJson = "";
+      fetchDetail(key, true);
+    }
+
+    function closeDetail() {
+      openIssueKey = null;
+      lastDetailJson = "";
+      detailSeq++; // invalidate any in-flight fetch
+      const panel = $("detail-panel");
+      panel.classList.add("translate-x-full");
+      panel.classList.remove("translate-x-0");
+      panel.setAttribute("aria-hidden", "true");
+      $("detail-loading").classList.add("hidden");
+      renderIssues(); // clear the active-row highlight
+    }
+
+    // ---- Request log --------------------------------------------------------
     function renderLog(entries) {
       const body = $("log-body");
       $("log-empty").classList.toggle("hidden", entries.length !== 0);
@@ -261,11 +487,16 @@
       `).join("");
     }
 
+    // ---- Data loading -------------------------------------------------------
+    let loadSeq = 0; // only the latest-initiated poll may apply its response
+
     async function loadData() {
+      const seq = ++loadSeq;
       try {
         const res = await fetch("/api/admin/data", { headers: { "Accept": "application/json" } });
-        if (!res.ok) return;
+        if (!res.ok || seq !== loadSeq) return;
         const data = await res.json();
+        if (seq !== loadSeq) return;
         const s = data.stats || {};
 
         $("stat-projects").textContent = s.total_projects ?? 0;
@@ -275,11 +506,15 @@
 
         ALL_ISSUES = data.issues || [];
         syncProjectOptions(ALL_ISSUES);
+        syncAssigneeOptions(ALL_ISSUES);
         renderIssues();
 
         const log = data.request_log || [];
         $("log-count").textContent = log.length ? `(${log.length})` : "";
         renderLog(log);
+
+        // Keep an open detail panel current without closing or resetting it.
+        if (openIssueKey !== null) fetchDetail(openIssueKey, false);
       } catch (err) {
         /* keep the last good render on transient errors */
         console.error("dashboard refresh failed", err);
@@ -287,9 +522,37 @@
     }
 
     // ---- Events -------------------------------------------------------------
-    $("filter-project").addEventListener("change", renderIssues);
-    $("filter-status").addEventListener("change", renderIssues);
-    $("filter-search").addEventListener("input", renderIssues);
+    function onFilterChange() {
+      currentPage = 1;
+      renderIssues();
+    }
+    $("filter-project").addEventListener("change", onFilterChange);
+    $("filter-status").addEventListener("change", onFilterChange);
+    $("filter-assignee").addEventListener("change", onFilterChange);
+    $("filter-search").addEventListener("input", onFilterChange);
+
+    $("page-prev").addEventListener("click", () => {
+      if (currentPage > 1) { currentPage--; renderIssues(); }
+    });
+    $("page-next").addEventListener("click", () => {
+      currentPage++; renderIssues(); // renderIssues clamps to the last page
+    });
+
+    $("issues-body").addEventListener("click", (e) => {
+      const tr = e.target.closest("tr[data-key]");
+      if (tr) openDetail(tr.getAttribute("data-key"));
+    });
+
+    $("detail-close").addEventListener("click", closeDetail);
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || openIssueKey === null) return;
+      // Let Escape act on the focused control (dropdown, IME composition,
+      // autofill) instead of also closing the panel.
+      if (e.isComposing) return;
+      const t = e.target;
+      if (t && /^(SELECT|INPUT|TEXTAREA)$/.test(t.tagName)) return;
+      closeDetail();
+    });
 
     $("reset-btn").addEventListener("click", async () => {
       const btn = $("reset-btn");
@@ -298,6 +561,7 @@
       btn.textContent = "Resetting…";
       try {
         await fetch("/api/admin/reset", { method: "DELETE" });
+        closeDetail(); // the issue that was open no longer exists
         await loadData();
       } finally {
         btn.disabled = false;
