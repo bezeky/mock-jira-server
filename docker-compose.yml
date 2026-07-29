@@ -28,7 +28,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/rest/api/2/serverInfo"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/rest/api/2/serverInfo || exit 1"]
       interval: 5s
       retries: 10
 

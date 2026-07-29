@@ -1,7 +1,7 @@
 # Mock Jira Server — OSM Integration Testing
 
-**v2.0.0** — a mock **Jira Server / Data Center** (on-premise) **REST API v2** implementation,
-built with Python 3.11+, FastAPI, Pydantic v2, and PostgreSQL.
+**v2.1.0** — a mock **Jira Server / Data Center** (on-premise) **REST API v2** implementation,
+built with Node.js 20, TypeScript, Fastify, and PostgreSQL.
 
 This mock enables **OSM (OFSecMan)** to be tested against a full Jira Server REST API v2
 without requiring a real Jira license. OSM connects to it exactly as it would to a production
@@ -25,8 +25,8 @@ live from the admin dashboard. It is equally usable from the generic
 - JQL search (a pragmatic subset — see [docs/JQL.md](docs/JQL.md)) over `GET`/`POST /search`.
 - Server-shaped metadata: `serverInfo`, `myself`, `priority`, `status`, `issuetype`, `field`.
 - A software-license stub so the client's product checks pass.
-- An admin dashboard at `/admin` (issue detail panel, pagination, filters) and interactive
-  Swagger docs at `/docs`.
+- An admin dashboard at `/admin` (issue detail panel, pagination, filters) and a JSON
+  route listing at `/docs`.
 - Seed data (`APIRE` / `OFS` / `DEMO` projects, mock + real company users, sample issues)
   loaded on first startup.
 
@@ -34,7 +34,7 @@ live from the admin dashboard. It is equally usable from the generic
 
 ## Seeded Users
 
-`app/seed.py` pre-seeds every user the mock needs, so a full container wipe
+`src/seed.ts` pre-seeds every user the mock needs, so a full container wipe
 (`docker compose down -v`) or an admin-dashboard reset always restores them — no manual SQL
 required. The `name` field in each user object is what OSM sends as `assignee.name` when it
 creates a ticket.
@@ -44,6 +44,7 @@ creates a ticket.
 | Mock users (referenced by the seeded demo issues) | `admin`, `developer1`, `qaengineer` |
 | Company users — long-form (OSM LDAP format) | `mastergulsena`, `gulsenabu`, `bsinem`, `fundabussines`, `bsnsila2`, `maakinci` |
 | Company users — short-form | `gulsenab`, `sinemk`, `fundas`, `silak` |
+| Company users — full-email usernames | `bgulsena@secrcomp.com`, `mastersila2@secrcomp.com`, `fundamaster@secrcomp.com`, `maakinci@secrcomp.com` |
 | Test accounts | `testmp` |
 
 ---
@@ -71,8 +72,9 @@ You must have PostgreSQL 15 reachable at `DATABASE_URL`
 (default `postgresql://jira:jira_password@localhost:5432/jira_mock`).
 
 ```bash
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8080
+npm install
+npm run build
+npm start          # or: npm run dev (watch mode via tsx)
 ```
 
 Tables are created automatically on startup, and seed data is loaded if the database is empty.
@@ -170,8 +172,7 @@ Full request/response examples are in [docs/API.md](docs/API.md).
   - **Filters:** project, status, assignee, and free-text search, plus a live issue count.
   - Live stats and a request log, auto-refreshing every 3 seconds (an open detail panel
     survives the refresh and updates in place).
-- **Swagger / OpenAPI UI:** <http://localhost:8080/docs>
-- **ReDoc:** <http://localhost:8080/redoc>
+- **Route listing (JSON):** <http://localhost:8080/docs>
 
 ---
 
@@ -187,10 +188,12 @@ git clone https://github.com/bezeky/mock-jira-server.git /tmp/mock-jira-server
 
 # 2. Copy the changed files over the deployed tree (adjust the target path to the
 #    directory that holds the running docker-compose.yml)
-cp -R /tmp/mock-jira-server/app \
+cp -R /tmp/mock-jira-server/src \
       /tmp/mock-jira-server/Dockerfile \
       /tmp/mock-jira-server/docker-compose.yml \
-      /tmp/mock-jira-server/requirements.txt \
+      /tmp/mock-jira-server/package.json \
+      /tmp/mock-jira-server/package-lock.json \
+      /tmp/mock-jira-server/tsconfig.json \
       /opt/mock-jira-server/
 
 # 3. Rebuild and restart
@@ -211,7 +214,7 @@ company users automatically after a wipe.
 | `BASE_URL` | `http://localhost:8080` | Base URL used to build `self` links |
 | `HOST` | `0.0.0.0` | Bind host |
 | `PORT` | `8080` | Bind port |
-| `SEED_DATA` | `True` | Load seed data on first startup if DB is empty |
+| `SEED_DATA` | `true` | Load seed data on first startup if DB is empty |
 | `LOG_LEVEL` | `INFO` | Logging level |
 
 Copy `.env.example` to `.env` to override any of these.
