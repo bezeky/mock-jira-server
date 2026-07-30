@@ -456,6 +456,7 @@ export function licenseStub(): any {
     rawLicense: "AAABRg0ODAoPeJytUEtPwzAMvvdXROLasOxACipb1WkgTaJSmxi4RC1LoFIS",
     licenseType: "COMMERCIAL",
     unlimited: true,
+    expired: false,
   };
 }
 
