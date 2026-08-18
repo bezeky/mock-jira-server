@@ -99,6 +99,20 @@
             <input id="filter-search" type="text" placeholder="Search…"
                    class="text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 w-36" />
           </div>
+          <!--
+            Store-wide total for the selected assignee. Rendered from the
+            assigneeCounts map that /api/admin/data already returns, so
+            switching assignees updates it without another request. Hidden
+            while the filter is on "All assignees".
+          -->
+          <div id="assignee-banner"
+               class="hidden m-3 rounded-lg border-l-4 border-teal-500 bg-teal-50 dark:bg-gray-800 px-4 py-3">
+            <p class="text-sm text-gray-600 dark:text-gray-300">
+              <span id="assignee-banner-count" class="text-lg font-bold text-teal-700 dark:text-teal-300">0</span>
+              <span id="assignee-banner-noun">issues</span> assigned to
+              <span id="assignee-banner-name" class="font-semibold text-gray-900 dark:text-gray-100">—</span>
+            </p>
+          </div>
           <div class="overflow-x-auto scroll-thin max-h-[60vh] overflow-y-auto">
             <table class="w-full text-sm">
               <thead class="sticky top-0 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
@@ -250,35 +264,76 @@
     // ---- State --------------------------------------------------------------
     const PAGE_SIZE = 25;
     let ALL_ISSUES = [];
+    let ASSIGNEE_COUNTS = {};  // assignee -> store-wide issue total, from /api/admin/data
     let currentPage = 1;
     let openIssueKey = null;   // issue shown in the detail panel; null = closed
     let detailSeq = 0;         // guards out-of-order detail fetches
     let lastDetailJson = "";   // skip re-renders when the open issue is unchanged
 
+    // Store-wide total for one assignee. The API sends these counts unfiltered;
+    // the fallback keeps the number honest if a name is somehow absent from the
+    // map (empty store, older payload) instead of showing a bare 0.
+    function assigneeTotal(name) {
+      const n = ASSIGNEE_COUNTS[name];
+      if (typeof n === "number") return n;
+      return ALL_ISSUES.reduce((acc, i) => acc + (i.assignee === name ? 1 : 0), 0);
+    }
+
     // ---- Filter dropdowns ---------------------------------------------------
-    function syncSelectOptions(sel, values) {
+    // items: [{ value, label }] — `value` is what the filters compare against,
+    // `label` is what the user reads (assignees carry their count in the label).
+    function syncSelectOptions(sel, items) {
       const current = sel.value;
-      const existing = Array.from(sel.options).slice(1).map((o) => o.value).join("|");
-      if (existing === values.join("|")) return; // unchanged; keep selection intact
+      const options = Array.from(sel.options).slice(1);
+      const sameValues = options.length === items.length &&
+        options.every((o, i) => o.value === items[i].value);
+      if (sameValues) {
+        // Same entries in the same order, so only a label can have moved (an
+        // assignee's count changed). Patch the text in place: replacing the
+        // options would collapse the dropdown under the user if a poll landed
+        // while they had it open.
+        items.forEach((it, i) => {
+          if (options[i].textContent !== it.label) options[i].textContent = it.label;
+        });
+        return; // selection untouched
+      }
       const first = sel.options[0].outerHTML;
       sel.innerHTML = first;
-      values.forEach((v) => {
+      items.forEach((it) => {
         const o = document.createElement("option");
-        o.value = v;
-        o.textContent = v;
+        o.value = it.value;
+        o.textContent = it.label;
         sel.appendChild(o);
       });
-      sel.value = values.includes(current) ? current : "";
+      sel.value = items.some((it) => it.value === current) ? current : "";
     }
 
     function syncProjectOptions(issues) {
       const keys = Array.from(new Set(issues.map((i) => i.project_key).filter(Boolean))).sort();
-      syncSelectOptions($("filter-project"), keys);
+      syncSelectOptions($("filter-project"), keys.map((k) => ({ value: k, label: k })));
     }
 
+    // Most-assigned first, with the name breaking ties so equal counts keep a
+    // deterministic order; each option shows the assignee's total: "Name (96)".
     function syncAssigneeOptions(issues) {
-      const names = Array.from(new Set(issues.map((i) => i.assignee).filter(Boolean))).sort();
-      syncSelectOptions($("filter-assignee"), names);
+      const names = Array.from(new Set(issues.map((i) => i.assignee).filter(Boolean)));
+      const totals = new Map(names.map((n) => [n, assigneeTotal(n)]));
+      names.sort((a, b) => totals.get(b) - totals.get(a) || a.localeCompare(b));
+      syncSelectOptions($("filter-assignee"), names.map((n) => ({
+        value: n,
+        label: `${n} (${totals.get(n)})`,
+      })));
+    }
+
+    // ---- Assignee banner ----------------------------------------------------
+    function renderAssigneeBanner() {
+      const name = $("filter-assignee").value;
+      $("assignee-banner").classList.toggle("hidden", !name);
+      if (!name) return;
+      const total = assigneeTotal(name);
+      $("assignee-banner-count").textContent = total;
+      $("assignee-banner-noun").textContent = total === 1 ? "issue" : "issues";
+      $("assignee-banner-name").textContent = name;
     }
 
     // ---- Issues table -------------------------------------------------------
@@ -324,6 +379,7 @@
 
     function renderIssues() {
       const rows = filteredIssues();
+      renderAssigneeBanner();
       $("issue-count").textContent = `(${rows.length} of ${ALL_ISSUES.length})`;
 
       const maxPage = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -505,6 +561,9 @@
         $("stat-inprogress").textContent = s.in_progress_issues ?? 0;
 
         ALL_ISSUES = data.issues || [];
+        // Set before the dropdown sync: option labels and the banner both
+        // read their totals out of this map.
+        ASSIGNEE_COUNTS = data.assigneeCounts || {};
         syncProjectOptions(ALL_ISSUES);
         syncAssigneeOptions(ALL_ISSUES);
         renderIssues();

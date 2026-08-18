@@ -4,7 +4,7 @@
  * Mounted in app.ts with NO prefix, so the routes are exactly:
  *
  *     GET    /admin                  -> serves the dashboard HTML
- *     GET    /api/admin/data         -> live dashboard JSON (stats, issues, request log)
+ *     GET    /api/admin/data         -> live dashboard JSON (stats, issues, assignee counts, request log)
  *     GET    /api/admin/issue/:key   -> single issue detail (description, comments)
  *     DELETE /api/admin/reset        -> wipe + reseed the store
  *     GET    /docs                   -> JSON listing of all registered routes
@@ -94,6 +94,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
           in_progress_issues: 0,
         },
         issues: [],
+        assigneeCounts: {},
         request_log: [],
       });
     }
@@ -105,11 +106,18 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
 
     let inProgress = 0;
     const issueRows: any[] = [];
+    // Per-assignee totals over every issue in the store. Built here, from the
+    // unfiltered list, so the dashboard's assignee badges always show the
+    // store-wide total rather than whatever the active filter/page happens to
+    // hold. A Map keeps names like "constructor" from colliding with
+    // Object.prototype.
+    const assigneeCounts = new Map<string, number>();
     for (const issue of allIssues) {
       const row = issueRow(issue);
       if (row.status === "In Progress") {
         inProgress += 1;
       }
+      assigneeCounts.set(row.assignee, (assigneeCounts.get(row.assignee) ?? 0) + 1);
       issueRows.push(row);
     }
 
@@ -124,6 +132,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         in_progress_issues: inProgress,
       },
       issues: issueRows,
+      assigneeCounts: Object.fromEntries(assigneeCounts),
       request_log: requestLog,
     });
   });
