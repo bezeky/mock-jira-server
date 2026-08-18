@@ -43,7 +43,6 @@ function issueRow(issue: any): any {
     assignee: assigneeName || "Unassigned",
     issuetype: issuetype.name ?? null,
     created: fields.created ?? null,
-    description: fields.description ?? null,
     comments: (fields.comment || {}).comments ?? [],
     reporter: (fields.reporter || {}).displayName ?? "",
     updated: fields.updated ?? "",
@@ -102,7 +101,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
     const projects = await db.listProjects();
     // limit to 100 newest; full-text descriptions make larger
     // result sets too slow for the dashboard polling interval
-    const allIssues = (await db.listAllIssues()).slice(0, 100); // already newest-first (created_at DESC)
+    const allIssues = (await db.listAllIssues()); // already newest-first (created_at DESC)
 
     let inProgress = 0;
     const issueRows: any[] = [];
