@@ -51,8 +51,9 @@ describe("admin", () => {
     const rows = resp.json().issues;
     const row = rows.find((r: any) => r.key === created.key);
     expect(row).toBeTruthy();
-    expect(row).toHaveProperty("description");
-    expect(row.description).toBe(ISSUE_BODY.fields.description);
+    // description is no longer included in list rows (lazy-loaded via
+    // GET /api/admin/issue/:key to keep the list response small)
+    expect(row).not.toHaveProperty("description");
     // Pre-existing keys must be untouched (additive change only).
     for (const existingKey of [
       "key",
