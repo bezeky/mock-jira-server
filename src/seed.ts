@@ -37,6 +37,8 @@ const _USERS: Array<[string, string, string]> = [
   // Full-email usernames (OSM may send the whole address as the username)
   ["bgulsena@secrcomp.com", "Gülsena Buran", "bgulsena@secrcomp.com"],
   ["mastersila2@secrcomp.com", "Sıla Kara", "mastersila2@secrcomp.com"],
+  ["bsnsila2@secrcomp.com", "Sıla Kara", "bsnsila2@secrcomp.com"],
+  ["silak@secrcomp.com", "Sıla Kara", "silak@secrcomp.com"],
   ["fundamaster@secrcomp.com", "Funda Sen", "fundamaster@secrcomp.com"],
   ["maakinci@secrcomp.com", "Arda Akıncı", "maakinci@secrcomp.com"],
 ];
