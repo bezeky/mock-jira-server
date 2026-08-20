@@ -41,6 +41,10 @@ const _USERS: Array<[string, string, string]> = [
   ["silak@secrcomp.com", "Sıla Kara", "silak@secrcomp.com"],
   ["fundamaster@secrcomp.com", "Funda Sen", "fundamaster@secrcomp.com"],
   ["maakinci@secrcomp.com", "Arda Akıncı", "maakinci@secrcomp.com"],
+  ["masterfurkan", "Furkan", "masterfurkan@gmail.com"],
+  ["masterfurkan@gmail.com", "Furkan", "masterfurkan@gmail.com"],
+  ["businessfurkan", "Furkan", "businessfurkan@gmail.com"],
+  ["businessfurkan@gmail.com", "Furkan", "businessfurkan@gmail.com"],
 ];
 
 // [key, id, name]
